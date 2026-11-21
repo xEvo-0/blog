@@ -16,10 +16,33 @@ Inkwell is a full-stack blog application for publishing and browsing stories. Re
 
 ## Tech stack
 
-- **Client:** React, Vite, React Router
-- **Server:** Node.js, Express
-- **Database:** MongoDB with Mongoose
-- **Authentication:** JSON Web Tokens (JWT)
+- **React** — builds the interactive, component-based user interface.
+- **Vite** — runs the client development server and creates the production client bundle.
+- **React Router** — handles client-side navigation between stories, account pages, and the editor.
+- **Node.js** — JavaScript runtime used by the API server.
+- **Express** — provides the REST API, middleware pipeline, and static image routes.
+- **MongoDB** — stores user accounts and blog posts.
+- **Mongoose** — defines MongoDB models, validates data, and manages database queries.
+- **JSON Web Tokens (JWT)** — authenticates API requests with short-lived signed tokens.
+- **bcryptjs** — hashes author passwords before they are stored.
+- **Multer** — validates and saves uploaded cover-image files.
+- **Lucide React** — supplies interface icons.
+
+## How the application works
+
+1. The React client requests public post data from the Express API.
+2. Express reads and writes posts and accounts in MongoDB through Mongoose.
+3. Authors register and sign in to receive a one-hour JWT. The browser sends the token with post-management requests.
+4. The API checks the token and role. Authors can manage their own posts; the optional configured admin can manage all posts.
+5. Cover images are uploaded to the API and their URLs are stored on the related post.
+
+The client and server are separate npm workspaces in a single repository. During development, Vite proxies `/api` and `/uploads` requests to the local API.
+
+## Image storage
+
+Cover images are currently stored on the API server's local filesystem in `server/uploads/`. The API serves them from `/uploads/`. JPEG, PNG, WEBP, and GIF files are accepted, with a 5 MB limit and one cover image per request.
+
+**Cloudinary is not currently integrated.** For deployments where local files may be removed during a redeploy or instance restart, configure durable image storage (such as Cloudinary or object storage) before production use.
 
 ## Requirements
 
