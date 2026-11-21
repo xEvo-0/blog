@@ -17,7 +17,12 @@ export default function Header({ isAuthenticated, onLogout }) {
             </Link>
             <button type="button" className="button button-outline button-small" onClick={onLogout}>Sign out</button>
           </>
-        ) : <Link to="/login" className="button button-dark button-small">Admin sign in</Link>}
+        ) : (
+          <>
+            <Link to="/register" className="nav-link register-link">Register</Link>
+            <Link to="/login" className="button button-dark button-small">Sign in</Link>
+          </>
+        )}
       </nav>
     </header>
   );

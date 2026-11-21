@@ -46,7 +46,9 @@ export async function listPosts(request, response) {
 }
 
 export async function getPost(request, response) {
-  const post = await Post.findOne({ slug: request.params.slug }).lean();
+  const post = await Post.findOne({ slug: request.params.slug })
+    .populate("author", "username")
+    .lean();
   if (!post) return response.status(404).json({ message: "Post not found." });
   return response.json({ post });
 }
@@ -54,14 +56,15 @@ export async function getPost(request, response) {
 export async function createPost(request, response) {
   const post = await Post.create({
     ...postData(request.body, request.file ? `/uploads/${request.file.filename}` : ""),
-    slug: createSlug(request.body.title || "")
+    slug: createSlug(request.body.title || ""),
+    ...(request.user.role === "author" ? { author: request.user.sub } : {})
   });
 
   response.status(201).json({ post });
 }
 
 export async function updatePost(request, response) {
-  const post = await Post.findOne({ slug: request.params.slug });
+  const post = request.post || await Post.findOne({ slug: request.params.slug });
   if (!post) {
     if (request.file) await removeUpload(`/uploads/${request.file.filename}`);
     return response.status(404).json({ message: "Post not found." });
@@ -69,7 +72,7 @@ export async function updatePost(request, response) {
 
   const previousImage = post.coverImage;
   const updated = await Post.findOneAndUpdate(
-    { slug: request.params.slug },
+    { _id: post._id },
     postData(request.body, request.file ? `/uploads/${request.file.filename}` : ""),
     { new: true, runValidators: true }
   );
@@ -79,7 +82,9 @@ export async function updatePost(request, response) {
 }
 
 export async function deletePost(request, response) {
-  const post = await Post.findOneAndDelete({ slug: request.params.slug });
+  const post = request.post
+    ? await Post.findByIdAndDelete(request.post._id)
+    : await Post.findOneAndDelete({ slug: request.params.slug });
   if (!post) return response.status(404).json({ message: "Post not found." });
   if (post.coverImage) await removeUpload(post.coverImage);
   response.json({ message: "Post deleted." });

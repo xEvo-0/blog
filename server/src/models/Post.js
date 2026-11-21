@@ -40,6 +40,12 @@ const postSchema = new mongoose.Schema(
     coverImage: {
       type: String,
       default: ""
+    },
+    author: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+      index: true
     }
   },
   { timestamps: true }

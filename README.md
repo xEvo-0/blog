@@ -1,13 +1,15 @@
 # Inkwell
 
-Inkwell is a full-stack blog application for publishing and browsing stories. Readers can explore posts, filter by category, and search the collection. A configured administrator can sign in to create, edit, and delete posts.
+Inkwell is a full-stack blog application for publishing and browsing stories. Readers can explore posts, filter by category, and search the collection. Anyone can register as an author; authors manage their own posts, while the configured administrator can manage every post.
 
 ## Features
 
 - Browse, search, and filter posts by category
 - Paginated post listings and individual post pages
-- Admin sign-in using a short-lived JWT
-- Admin-only post creation, editing, and deletion
+- Public author registration and sign-in using short-lived JWTs
+- Authors can create posts and manage only their own posts
+- Admins can manage every post
+- Passwords are hashed before storage and auth endpoints are rate-limited
 - Optional cover images (JPG, PNG, WEBP, or GIF; up to 5 MB)
 - MongoDB-backed storage and an Express REST API
 - Responsive React interface
@@ -39,6 +41,7 @@ Inkwell is a full-stack blog application for publishing and browsing stories. Re
    MONGODB_URI=mongodb://127.0.0.1:27017/inkwell
    PORT=5000
    CLIENT_ORIGIN=http://localhost:5173
+   # Optional environment-based administrator account; set both or neither
    ADMIN_USERNAME=choose-an-admin-username
    ADMIN_PASSWORD=choose-a-strong-password
    JWT_SECRET=replace-with-a-random-secret-at-least-32-characters-long
@@ -60,7 +63,7 @@ Inkwell is a full-stack blog application for publishing and browsing stories. Re
 
 4. Open the Vite URL printed in the terminal (normally `http://localhost:5173`). The API listens on port `5000` by default. During development, Vite proxies `/api` and `/uploads` to the API.
 
-There is no public registration endpoint. The administrator account is configured using `ADMIN_USERNAME` and `ADMIN_PASSWORD`.
+Public registration creates author accounts. Configure `ADMIN_USERNAME` and `ADMIN_PASSWORD` if you also want the environment-based administrator account; admin credentials are separate from registered users.
 
 ## Commands
 
@@ -79,31 +82,46 @@ All routes are prefixed with `/api`. Unless noted, endpoints that read posts are
 | Method | Endpoint | Description | Access |
 | --- | --- | --- | --- |
 | `GET` | `/api/health` | Report API and database connection status | Public |
-| `POST` | `/api/auth/login` | Exchange admin credentials for a JWT | Public |
+| `POST` | `/api/auth/register` | Create an author account and receive a JWT | Public |
+| `POST` | `/api/auth/login` | Sign in as a registered author or configured admin | Public |
 | `GET` | `/api/posts` | List posts with pagination and optional search/category filters | Public |
 | `GET` | `/api/posts/categories` | List categories used by posts | Public |
 | `GET` | `/api/posts/:slug` | Get a post by its slug | Public |
-| `POST` | `/api/posts` | Create a post | Admin |
-| `PUT` | `/api/posts/:slug` | Update a post | Admin |
-| `DELETE` | `/api/posts/:slug` | Delete a post | Admin |
+| `POST` | `/api/posts` | Create a post | Author or admin |
+| `PUT` | `/api/posts/:slug` | Update a post | Owner or admin |
+| `DELETE` | `/api/posts/:slug` | Delete a post | Owner or admin |
+
+### Register
+
+Create a public author account with a username, email address, and password:
+
+```sh
+curl -X POST http://localhost:5000/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"username":"your-username","email":"you@example.com","password":"a-strong-password"}'
+```
+
+Usernames are 3–30 characters and may contain letters, numbers, dots, underscores, and hyphens. Passwords must be at least 8 characters and no more than 72 bytes. Registration signs the new author in immediately and returns a JWT that expires after one hour.
+
+Sign-in is limited to 10 attempts per IP every 15 minutes; registration is limited to 5 accounts per IP per hour.
 
 ### Sign in
 
-Send the configured administrator credentials as JSON:
+Registered authors can sign in with their username or email address. The configured admin signs in with `ADMIN_USERNAME`.
 
 ```sh
 curl -X POST http://localhost:5000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"your-admin-username","password":"your-admin-password"}'
+  -d '{"identifier":"your-username-or-email","password":"your-password"}'
 ```
 
-The response contains a JWT that expires after one hour. Include it as a bearer token when calling protected endpoints:
+Include the returned JWT as a bearer token when calling protected endpoints:
 
 ```text
 Authorization: Bearer <token>
 ```
 
-The client provides an **Admin sign in** page and attaches the token to post-management requests. Signing out removes the locally stored token.
+The client provides **Register** and **Sign in** pages and attaches the token to post-management requests. Authors can edit or delete only their own posts; admins can manage all posts. Signing out removes the locally stored token.
 
 ### Posts
 
@@ -130,9 +148,9 @@ Create and update requests use `multipart/form-data` and accept:
 | Variable | Purpose | Default |
 | --- | --- | --- |
 | `MONGODB_URI` | MongoDB connection string | Required |
-| `ADMIN_USERNAME` | Configured administrator username | Required for sign-in |
-| `ADMIN_PASSWORD` | Configured administrator password | Required for sign-in |
-| `JWT_SECRET` | Secret used to sign and verify JWTs (minimum 32 characters) | Required for sign-in |
+| `ADMIN_USERNAME` | Configured administrator username | Optional; required with `ADMIN_PASSWORD` for admin sign-in |
+| `ADMIN_PASSWORD` | Configured administrator password | Optional; required with `ADMIN_USERNAME` for admin sign-in |
+| `JWT_SECRET` | Secret used to sign and verify JWTs (minimum 32 characters) | Required for registration and sign-in |
 | `PORT` | API listening port | `5000` |
 | `CLIENT_ORIGIN` | Comma-separated allowed browser origins | `http://localhost:5173` |
 | `VITE_API_URL` | API base URL used by the built client | Empty (same origin) |
@@ -152,7 +170,7 @@ server/
     config/              Database and JWT configuration
     controllers/         Authentication and post handlers
     middleware/          Authentication, uploads, and errors
-    models/              MongoDB schemas
+    models/              User and post MongoDB schemas
     routes/              API routes
     utils/               Slug and upload helpers
   uploads/               Locally stored cover images

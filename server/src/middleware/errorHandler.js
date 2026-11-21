@@ -13,7 +13,9 @@ export function errorHandler(error, _request, response, _next) {
     message = Object.values(error.errors).map((item) => item.message).join(" ");
   } else if (error.code === 11000) {
     statusCode = 409;
-    message = "A post with this slug already exists.";
+    message = error.keyPattern?.slug
+      ? "A post with this slug already exists."
+      : "An account with this username or email already exists.";
   } else if (error.name === "CastError") {
     statusCode = 400;
     message = "Invalid post identifier.";

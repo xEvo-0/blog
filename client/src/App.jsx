@@ -1,7 +1,7 @@
 import { ArrowLeft, ArrowRight, Search, Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
-import { getAuthToken, login, setAuthToken } from "./api/auth.js";
+import { getAuthToken, getAuthUser, login, register, setAuthToken } from "./api/auth.js";
 import { deletePost, getCategories, getPost, getPosts, getImageUrl, savePost } from "./api/posts.js";
 import Header from "./components/Header.jsx";
 import Loading from "./components/Loading.jsx";
@@ -127,7 +127,7 @@ function HomePage() {
   );
 }
 
-function EditorPage({ editing = false, isAuthenticated }) {
+function EditorPage({ editing = false, isAuthenticated, user }) {
   const { slug } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
@@ -161,6 +161,9 @@ function EditorPage({ editing = false, isAuthenticated }) {
 
   if (loading) return <main className="page-wrap"><Loading /></main>;
   if (editing && error && !post) return <main className="page-wrap"><ErrorPanel message={error} /></main>;
+  if (editing && post && !canManagePost(user, post)) {
+    return <main className="page-wrap"><ErrorPanel message="You can only edit stories you published." /></main>;
+  }
 
   return (
     <>
@@ -178,7 +181,7 @@ function EditorPage({ editing = false, isAuthenticated }) {
   );
 }
 
-function PostPage({ isAuthenticated }) {
+function PostPage({ user }) {
   const { slug } = useParams();
   const navigate = useNavigate();
   const [post, setPost] = useState(null);
@@ -209,6 +212,8 @@ function PostPage({ isAuthenticated }) {
   if (loading) return <main className="page-wrap"><Loading /></main>;
   if (!post) return <main className="page-wrap"><ErrorPanel message={error || "Story not found."} /></main>;
 
+  const authorName = post.author?.username || "Inkwell contributor";
+
   return (
     <>
       <main className="article-wrap">
@@ -219,9 +224,9 @@ function PostPage({ isAuthenticated }) {
           <h1>{post.title}</h1>
           {post.excerpt && <p className="article-deck">{post.excerpt}</p>}
           <div className="article-byline">
-            <div className="author-avatar">I</div>
-            <div><strong>Inkwell contributor</strong><span>Just a curious person with a story</span></div>
-            {isAuthenticated && <div className="article-actions">
+            <div className="author-avatar">{authorName[0].toUpperCase()}</div>
+            <div><strong>{authorName}</strong><span>{post.author ? "Inkwell author" : "Just a curious person with a story"}</span></div>
+            {canManagePost(user, post) && <div className="article-actions">
               <Link className="button button-outline button-small" to={`/edit/${post.slug}`}>Edit story</Link>
               <button className="button button-danger button-small" onClick={remove} disabled={deleting}>{deleting ? "Deleting..." : "Delete"}</button>
             </div>}
@@ -247,13 +252,26 @@ function Footer() {
   return <footer className="site-footer"><Link className="brand footer-brand" to="/"><span className="brand-mark"><span>i</span></span><span>inkwell<span className="brand-period">.</span></span></Link><span>Made for people who love a good story.</span><span>© {new Date().getFullYear()} INKWELL</span></footer>;
 }
 
+function canManagePost(user, post) {
+  const authorId = typeof post.author === "string" ? post.author : post.author?._id?.toString();
+  return user?.role === "admin" || (user?.role === "author" && authorId === user.id);
+}
+
 export default function App() {
   const [token, setToken] = useState(() => getAuthToken());
+  const [user, setUser] = useState(() => getAuthUser());
   const isAuthenticated = Boolean(token);
+
+  function completeLogin(session) {
+    setAuthToken(session.token, session.user);
+    setToken(session.token);
+    setUser(session.user);
+  }
 
   function signOut() {
     setAuthToken("");
     setToken(null);
+    setUser(null);
   }
 
   return (
@@ -261,10 +279,11 @@ export default function App() {
       <Header isAuthenticated={isAuthenticated} onLogout={signOut} />
       <Routes>
         <Route path="/" element={<HomePage />} />
-        <Route path="/login" element={<LoginPage onLogin={(nextToken) => { setAuthToken(nextToken); setToken(nextToken); }} />} />
-        <Route path="/write" element={<EditorPage isAuthenticated={isAuthenticated} />} />
-        <Route path="/edit/:slug" element={<EditorPage editing isAuthenticated={isAuthenticated} />} />
-        <Route path="/post/:slug" element={<PostPage isAuthenticated={isAuthenticated} />} />
+        <Route path="/login" element={<LoginPage onLogin={completeLogin} />} />
+        <Route path="/register" element={<RegisterPage onLogin={completeLogin} />} />
+        <Route path="/write" element={<EditorPage isAuthenticated={isAuthenticated} user={user} />} />
+        <Route path="/edit/:slug" element={<EditorPage editing isAuthenticated={isAuthenticated} user={user} />} />
+        <Route path="/post/:slug" element={<PostPage user={user} />} />
         <Route path="*" element={<main className="page-wrap"><ErrorPanel message="That page doesn't exist." /></main>} />
       </Routes>
     </div>
@@ -274,7 +293,7 @@ export default function App() {
 function LoginPage({ onLogin }) {
   const location = useLocation();
   const navigate = useNavigate();
-  const [username, setUsername] = useState("");
+  const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -285,8 +304,8 @@ function LoginPage({ onLogin }) {
     setBusy(true);
     setError("");
     try {
-      const result = await login(username, password);
-      onLogin(result.token);
+      const result = await login(identifier, password);
+      onLogin(result);
       navigate(destination, { replace: true });
     } catch (reason) {
       setError(reason.message);
@@ -299,18 +318,79 @@ function LoginPage({ onLogin }) {
     <>
       <main className="page-wrap">
         <div className="page-intro">
-          <div className="eyebrow"><span className="eyebrow-line" /> ADMIN ACCESS</div>
+          <div className="eyebrow"><span className="eyebrow-line" /> ACCOUNT ACCESS</div>
           <h1>Welcome back.</h1>
-          <p>Sign in to write and manage stories.</p>
+          <p>Sign in to write and manage your stories.</p>
         </div>
         <form className="login-form" onSubmit={submit}>
-          <label className="field-label" htmlFor="admin-username">USERNAME</label>
-          <input id="admin-username" className="side-input" autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} required />
-          <label className="field-label" htmlFor="admin-password">PASSWORD</label>
-          <input id="admin-password" className="side-input" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required />
+          <label className="field-label" htmlFor="login-identifier">USERNAME OR EMAIL</label>
+          <input id="login-identifier" className="side-input" autoComplete="username" value={identifier} onChange={(event) => setIdentifier(event.target.value)} required />
+          <label className="field-label" htmlFor="login-password">PASSWORD</label>
+          <input id="login-password" className="side-input" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required />
           {error && <p className="form-error" role="alert">{error}</p>}
           <button type="submit" className="button button-dark" disabled={busy}>{busy ? "Signing in..." : "Sign in"}</button>
         </form>
+        <p className="auth-switch">New to Inkwell? <Link to="/register">Create an account</Link></p>
+      </main>
+      <Footer />
+    </>
+  );
+}
+
+function RegisterPage({ onLogin }) {
+  const navigate = useNavigate();
+  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function submit(event) {
+    event.preventDefault();
+    setError("");
+    if (!/^[a-z0-9._-]{3,30}$/i.test(username.trim())) {
+      setError("Username must be 3–30 characters and use only letters, numbers, dots, underscores, or hyphens.");
+      return;
+    }
+    if (password !== confirmPassword) {
+      setError("Passwords do not match.");
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const session = await register(username, email, password);
+      onLogin(session);
+      navigate("/write", { replace: true });
+    } catch (reason) {
+      setError(reason.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <main className="page-wrap">
+        <div className="page-intro">
+          <div className="eyebrow"><span className="eyebrow-line" /> JOIN THE READING ROOM</div>
+          <h1>Make room for your story.</h1>
+          <p>Create an author account and share what’s on your mind.</p>
+        </div>
+        <form className="login-form" onSubmit={submit}>
+          <label className="field-label" htmlFor="register-username">USERNAME</label>
+          <input id="register-username" className="side-input" autoComplete="username" minLength="3" maxLength="30" value={username} onChange={(event) => setUsername(event.target.value)} required />
+          <label className="field-label" htmlFor="register-email">EMAIL</label>
+          <input id="register-email" className="side-input" type="email" autoComplete="email" maxLength="254" value={email} onChange={(event) => setEmail(event.target.value)} required />
+          <label className="field-label" htmlFor="register-password">PASSWORD</label>
+          <input id="register-password" className="side-input" type="password" autoComplete="new-password" minLength="8" maxLength="72" value={password} onChange={(event) => setPassword(event.target.value)} required />
+          <label className="field-label" htmlFor="register-confirm-password">CONFIRM PASSWORD</label>
+          <input id="register-confirm-password" className="side-input" type="password" autoComplete="new-password" minLength="8" maxLength="72" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} required />
+          {error && <p className="form-error" role="alert">{error}</p>}
+          <button type="submit" className="button button-dark" disabled={busy}>{busy ? "Creating account..." : "Create account"}</button>
+        </form>
+        <p className="auth-switch">Already have an account? <Link to="/login">Sign in</Link></p>
       </main>
       <Footer />
     </>

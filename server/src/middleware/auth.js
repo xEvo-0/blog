@@ -1,5 +1,6 @@
 import jwt from "jsonwebtoken";
 import { JWT_AUDIENCE, JWT_ISSUER } from "../config/jwt.js";
+import Post from "../models/Post.js";
 
 export function authenticateToken(request, response, next) {
   const authorization = request.get("authorization") || "";
@@ -27,4 +28,17 @@ export function authorizeRoles(...roles) {
     }
     return next();
   };
+}
+
+export async function authorizePostOwner(request, response, next) {
+  if (request.user.role === "admin") return next();
+
+  const post = await Post.findOne({ slug: request.params.slug });
+  if (!post) return response.status(404).json({ message: "Post not found." });
+  if (!post.author || post.author.toString() !== request.user.sub) {
+    return response.status(403).json({ message: "You can only manage your own posts." });
+  }
+
+  request.post = post;
+  return next();
 }
